@@ -1,0 +1,154 @@
+---
+title: "Replicate JQT 2011 Xie"
+author: "Tahir and Inez"
+date: "6 December 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r install-packages, include=FALSE, eval=FALSE}
+  install.packages("tidyverse") #for tibbles.
+  install.packages("purrr") 
+  install.packages("dbplyr") 
+  install.packages("ggplot2")
+  install.packages("tidyr")
+```
+
+```{r load-packages, include=TRUE, eval=TRUE, message=FALSE}
+  require("tidyverse") #for tibbles.
+  require("purrr") 
+  require("dbplyr") 
+  require("ggplot2")
+  require("tidyr")
+```
+
+# Intoduction
+In still code we reproduce the results from "Two MEWMA Charts for Gumbel's Biviate Exponantial Distribution" by Xie et al. (2011) in JQT.
+
+# Data model: GBE data - bivariate
+Here we code the GBE data model denoted by $GBE(\theta_1,\theta_2,\delta)$. First we set the parameters and next provide a function to  simulate data from it.
+```{r data-model-GBE}
+# general random data from bivariate GBE model  
+r.gbe <- function(n, t1, t2, d){
+  
+  U = runif(n,min=0,max=1)
+  M = rbinom(n,size=1,prob=d)
+  V1 = rexp(n, rate=1)
+  V2 = rexp(n, rate=1)
+  V = V1 + M*V2
+  X1 = t1*(U^d)*V
+  X2 = t2*((1-U)^d)*V 
+  X = matrix(data = NA,nrow=2,ncol=n)
+  X[1,] = X1
+  X[2,] = X2
+  return(X)
+}
+```
+
+
+
+# Set up monitoring methods
+Here we set up the five monitoring methods
+```{r functions-monitoring-methods}
+
+#mewma.raw
+mewma.raw <- function(sim,r,h,mu.x,sigma.x.inv,dTheta1,dTheta2,dDelta){
+   vRL = rep(0,sim)
+   vTS = rep(0,sim)
+   for (i in 1:sim){
+    vZ_prev <- 0
+    dE2 <- 0
+    while(dE2 < h ){
+      vX <- r.gbe(1,dTheta1,dTheta2,dDelta) #generate data
+      vZ = r*(vX-mu.x)+(1-r)*vZ_prev
+      vZ_prev = vZ
+      dE2 = ((2-r)/r) * t(vZ) %*% sigma.x.inv %*% vZ
+      vRL[i] = vRL[i] + 1
+      vTS[i] = vTS[i] + max(vX)
+    }
+   }
+   ARL = mean(vRL)
+   ATS = mean(vTS)
+   return(c(ARL,ATS))
+}
+
+
+#ewma.raw
+ewma.raw <- function(sim,r,L,mu.x,sigma.x,dTheta1,dTheta2,dDelta){
+   vRL = rep(0,sim)
+   vTS = rep(0,sim)
+   vUCL =  mu.x+L * diag(sigma.x) * sqrt(r/(2-r))
+   for (i in 1:sim){
+      vZ_prev <- c(0,0)
+      vZ <- c(0,0)
+      dummy.rl = rep(0,2)
+      dummy.ts =rep(0,2)
+      
+      while(all((abs(vZ) < vUCL))){ #only contiunue if all univariate < ucl
+        vX <- r.gbe(1,dTheta1,dTheta2,dDelta) #generate data
+        vZ = r*vX+(1-r)*vZ_prev
+        vZ_prev = vZ
+        vRL[i] = vRL[i] + 1
+        dummy.ts[1] = dummy.ts[2] + vX[1]
+        dummy.ts[2] = dummy.ts[2] + vX[2]
+      } 
+    vTS[i] = mean(dummy.ts)
+    }
+   ARL = mean(vRL)
+   ATS = mean(vTS)
+   return(c(ARL,ATS))
+}
+
+
+```
+
+
+
+Next we run the code for R simulation runs
+```{r run-monitoring-methods}
+#initialize GBE model
+dTheta1 = 1
+dTheta2 = 1
+dDelta = 0.5
+mu.x <- matrix(1,nrow=2,ncol=1)
+sigma.x <- matrix(NA,nrow=2,ncol=2)
+sigma.x[1,1] = dTheta1^2
+sigma.x[1,2] = sigma.x[2,1] = dTheta1*dTheta2*2*gamma(dDelta+1)/gamma(2*dDelta+1)-dTheta1*dTheta2
+sigma.x[2,2] = dTheta2^2
+sigma.x.inv = solve(sigma.x)
+results = data.frame(mewma.raw=double(length=2),
+                 ewma.raw = double(length=2),
+                 mewma.tra =double(length=2),
+                 emwa.tra = double(length=2),
+                 tt = double(length=2))
+row.names(results) <- c("ARL","ATS")
+
+#set initial values
+r <- 0.1
+h <- 10.35
+L <- 2.901
+R=1000
+
+#>>>>>  run simulation   <<<<<<<
+#in-control results
+results$mewma.raw[1:2] <- mewma.raw(sim=R,r,h,mu.x,sigma.x.inv,dTheta1,dTheta2,dDelta)
+                                      
+results$ewma.raw[1:2] <- ewma.raw(sim=R,r,L,mu.x,sigma.x,dTheta1,dTheta2,dDelta)
+
+#display results
+round(results, digits=0)
+```
+
+
+
+
+
+
+
+
+
+
+
